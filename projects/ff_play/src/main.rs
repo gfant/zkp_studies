@@ -1,6 +1,6 @@
 use ark_bls12_381::Fr;
 use ark_ff::{BigInteger, Field, One, PrimeField, Zero};
-
+use rand::Rng;
 #[derive(Debug, Clone, PartialEq)]
 pub struct DensePoly {
     pub coeffs: Vec<Fr>,
@@ -139,8 +139,7 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_random_values() {
-        use rand::Rng;
+    fn roundtrip_random_values() {      
         let mut rng = rand::rng();
         for _ in 0..10 {
             let n: u64 = rng.random();
