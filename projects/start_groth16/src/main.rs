@@ -7,6 +7,15 @@ use ark_poly::{
 };
 use ark_std::{test_rng, UniformRand};
 
+// For ark_groth16
+use ark_groth16::Groth16;
+use ark_r1cs_std::alloc::AllocVar;
+use ark_r1cs_std::eq::EqGadget;
+use ark_r1cs_std::fields::fp::FpVar;
+use ark_r1cs_std::fields::FieldVar;
+use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
+use ark_snark::SNARK;
+
 #[derive(Clone)]
 struct ABC {
     a: DensePolynomial<Fr>,
@@ -223,7 +232,8 @@ fn groth_verification(all_polynomials: AllPolys) -> bool {
     total_check
 }
 
-fn main() {
+fn groth16_by_hand() {
+    println!("== Working by hand == \n");
     // Sample equation: x^3 + x^2 -3x + 2
     let _coeffs = vec![Fr::from(1u64), Fr::from(1u64), Fr::zero() - Fr::from(3u64), Fr::from(2u64)];
 
@@ -293,4 +303,80 @@ fn main() {
     // Now testing
     let valid_groth16 = groth_verification(all_polynomials);
     println!("{}", valid_groth16);
+}
+
+// Repeating with groth16 crate. 
+// Polynomial is x^3 + x^2 -3x + 2
+
+#[derive(Clone)]
+struct Circuit {
+    pub x: Fr, // private variable (do not share in real life samples)
+}
+
+impl ConstraintSynthesizer<Fr> for Circuit {
+    fn generate_constraints(self, cs: ConstraintSystemRef<Fr>) -> Result<(), SynthesisError> {
+        let x_var = FpVar::new_witness(cs.clone(), || Ok(self.x))?;
+
+        // x^2
+        let x2 = &x_var * &x_var;
+
+        //x^3
+        let x3 = &x2 * &x_var;
+
+        // 3
+        let three = FpVar::constant(Fr::from(3u64));
+
+        // 3x
+        let three_x = &x_var * &three;
+
+        // 2
+        let two = FpVar::constant(Fr::from(2u64));
+
+        // x^3 + x^2 - 3x + 2
+        let rhs = &x3 + &x2 - three_x + two;
+
+        // y is public input
+        let y_var = FpVar::new_input(cs.clone(), || Ok(self.x * self.x * self.x + self.x * self.x - Fr::from(3u64) * self.x + Fr::from(2u64)))?;
+
+        // Enforce y == rhs
+        rhs.enforce_equal(&y_var)?;
+
+        Ok(())
+    }
+}
+
+fn groth16_by_code() {
+    println!("== Working with ark_groth16 == \n");
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
+    
+    let mut rng = StdRng::from_entropy();
+    
+    // Create circuit instance
+    let circuit = Circuit { x: Fr::from(3u64) };
+    
+    // Generate parameters (trusted setup)
+    let params = Groth16::<Bls12_381>::generate_random_parameters_with_reduction(circuit.clone(), &mut rng).unwrap();
+    
+    // Create proof
+    let proof = Groth16::<Bls12_381>::prove(&params, circuit.clone(), &mut rng).unwrap();
+    
+    // Public input: y =  x^3 + x^2 -3x + 2 where x = 3
+    // y = 3^3 + 3*3 - 3*3 + 2 = 27 + 2 = 29
+    let public_input = vec![Fr::from(29u64)];
+    
+    // Verify proof
+    let valid_proof = Groth16::<Bls12_381>::verify(&params.vk, &public_input, &proof).unwrap();
+    
+    println!("Groth16 proof verification: {}", valid_proof);
+    
+    // Test with wrong public input to show it fails
+    let wrong_input = vec![Fr::from(37u64)];
+    let invalid_proof = Groth16::<Bls12_381>::verify(&params.vk, &wrong_input, &proof).unwrap();
+    println!("Groth16 proof verification with wrong input: {}", invalid_proof);
+}
+
+fn main() {
+    groth16_by_hand();
+    groth16_by_code();
 }
